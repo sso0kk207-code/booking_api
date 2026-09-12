@@ -1,0 +1,58 @@
+name: CI/CD
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: booking_user
+          POSTGRES_PASSWORD: booking_pass
+          POSTGRES_DB: booking_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run smoke check (import app, health endpoint)
+        env:
+          DATABASE_URL: postgresql+psycopg2://booking_user:booking_pass@localhost:5432/booking_db
+          JWT_SECRET_KEY: ci-test-secret
+        run: |
+          python -c "from app.main import app; print('app import OK, routes:', len(app.routes))"
+
+      - name: Build Docker image
+        run: docker build -t booking-api:${{ github.sha }} .
+
+  deploy:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy over SSH
+        run: |
+          echo "Деплой на сервер: docker compose pull && docker compose up -d"
+          # Реальный шаг деплоя (пример): ssh на сервер и docker compose up -d --build,
+          # либо через appleboy/ssh-action с секретами SSH_HOST/SSH_KEY.
